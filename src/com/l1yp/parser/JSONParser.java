@@ -22,6 +22,7 @@ import java.util.Map;
 public class JSONParser {
 
     private Reader reader;
+    private StringBuilder sb = new StringBuilder(1024);
 
     public JSONParser(Reader reader) {
         this.reader = reader;
@@ -29,19 +30,17 @@ public class JSONParser {
 
 
     public Object parse() {
-        int limit = this.reader.limit();
         TokenInfo last = null;
         String key = null;
         Object val = null;
         Deque<Object> deque = new LinkedList<>();
         Object root = null;
-
         while (this.reader.remaining() > 0 && !(root != null && deque.isEmpty())) {
             TokenInfo ti = nextToken();
             Object top = deque.peek();
             switch (ti.token) {
                 case Token.SINGLE_COMMENT_PN: {
-                    nextLine();
+                    skipLine();
                     // TokenInfo tokenInfo = nextLine();
                     // System.out.println("read single comment: " + tokenInfo.val);
                     break;
@@ -50,12 +49,12 @@ public class JSONParser {
                     int cp = reader.read();
                     if (cp == Token.SLASH) {
                         reader.skip(1);
-                        nextLine();
+                        skipLine();
                         // TokenInfo tokenInfo = nextLine();
                         // System.out.println("read single comment: " + tokenInfo.val);
                     } else if (cp == '*') {
                         reader.skip(1);
-                        nextCommentBlockEnd();
+                        skipCommentBlockEnd();
                         // TokenInfo tokenInfo = nextCommentBlockEnd();
                         // System.out.println("read block comment: " + tokenInfo.val);
                     } else {
@@ -121,7 +120,7 @@ public class JSONParser {
                                     Token.desc(last.token), Token.desc(ti.token),
                                     ti.offset, last.offset));
                         }
-                    } else if (top instanceof List) {
+                    } else {
                         // ignore
                     }
                     deque.pop();
@@ -303,11 +302,27 @@ public class JSONParser {
         return (JSONArray) parse();
     }
 
+    private void skipLine() {
+        int off = this.reader.offset();
+        int ch;
+        while (this.reader.remaining() > 0) {
+            ch = this.reader.read();
+            switch (ch) {
+                case Token.CR:
+                case Token.LF: {
+                    return;
+                }
+                default: {
+                }
+            }
+        }
+    }
+
+
     private TokenInfo nextLine() {
         int off = this.reader.offset();
         int ch;
         TokenInfo ti = new TokenInfo();
-        StringBuilder sb = new StringBuilder();
         while (this.reader.remaining() > 0) {
             ch = this.reader.read();
             switch (ch) {
@@ -316,11 +331,10 @@ public class JSONParser {
                     ti.token = Token.SINGLE_COMMENT;
                     ti.start = off;
                     ti.offset = this.reader.offset();
-                    ti.val = sb.toString();
                     return ti;
                 }
                 default: {
-                    sb.appendCodePoint(ch);
+                    // sb.appendCodePoint(ch);
                     if (!Character.isWhitespace(ch)) {
                         ti.isBlank = false;
                     }
@@ -333,27 +347,36 @@ public class JSONParser {
         return ti;
     }
 
+    private void skipCommentBlockEnd() {
+        int ch;
+        while (this.reader.remaining() > 0) {
+            ch = this.reader.read();
+            if (ch == '*'){
+                int cp = this.reader.peek();
+                if (cp == '/') {
+                    this.reader.skip(1);
+                    return;
+                }
+            }
+        }
+        throw new JSONException("cannot found block comment end: */");
+    }
+
+
     private TokenInfo nextCommentBlockEnd() {
         int off = this.reader.offset();
         int ch;
         TokenInfo ti = new TokenInfo();
-        StringBuilder sb = new StringBuilder();
         while (this.reader.remaining() > 0) {
             ch = this.reader.read();
-            switch (ch) {
-                case '*': {
-                    int cp = this.reader.peek();
-                    if (cp == '/') {
-                        ti.token = Token.BLOCK_COMMENT;
-                        ti.start = off;
-                        ti.offset = this.reader.offset();
-                        ti.val = sb.toString();
-                        this.reader.skip(1);
-                        return ti;
-                    }
-                }
-                default: {
-                    sb.appendCodePoint(ch);
+            if (ch == '*'){
+                int cp = this.reader.peek();
+                if (cp == '/') {
+                    ti.token = Token.BLOCK_COMMENT;
+                    ti.start = off;
+                    ti.offset = this.reader.offset();
+                    this.reader.skip(1);
+                    return ti;
                 }
             }
         }
@@ -361,11 +384,11 @@ public class JSONParser {
     }
 
     private TokenInfo nextDoubleQuote() {
-        int limit = this.reader.limit();
         int off = this.reader.offset();
         int ch;
         TokenInfo ti = new TokenInfo();
-        StringBuilder sb = new StringBuilder();
+        sb.setLength(0);
+
         while (this.reader.remaining() > 0) {
             ch = this.reader.read();
             switch (ch) {
@@ -388,8 +411,8 @@ public class JSONParser {
                         int b1 = this.reader.read();
                         int b2 = this.reader.read();
                         if (CharUtil.isHex(b1) && CharUtil.isHex(b2)) {
-                            int codePoint = CharUtil.toByte(b1, b2);
-                            sb.appendCodePoint(codePoint);
+                            int codePoint = CharUtil.makeByte(b1, b2);
+                            sb.append((char) codePoint);
                         } else {
                             throw new JSONException("cannot resolve backslash with \\x with invalid hex, offset: "
                                     + this.reader.offset());
@@ -401,14 +424,17 @@ public class JSONParser {
                         int b2 = this.reader.read();
                         int b3 = this.reader.read();
                         int b4 = this.reader.read();
-                        if (!CharUtil.isHex(b1) || !CharUtil.isHex(b2) || !CharUtil.isHex(b3) || !CharUtil.isHex(b4)) {
+                        if (!CharUtil.isHex(b1) ||
+                            !CharUtil.isHex(b2) ||
+                            !CharUtil.isHex(b3) ||
+                            !CharUtil.isHex(b4)) {
                             throw new JSONException("cannot resolve backslash with \\u with invalid hex, offset: "
                                     + this.reader.offset());
                         }
 
 
-                        int hi = CharUtil.toByte(b1, b2);
-                        int lo = CharUtil.toByte(b3, b4);
+                        int hi = CharUtil.makeByte(b1, b2);
+                        int lo = CharUtil.makeByte(b3, b4);
                         int cp1 = ((hi << 8) | lo);
                         if (CharUtil.isHighUTF16Surrogate(cp1)) {
                             int nextB1 = this.reader.read();
@@ -431,18 +457,19 @@ public class JSONParser {
 
                             }
 
-                            int nextHi = CharUtil.toByte(nextB3, nextB4);
-                            int nextLo = CharUtil.toByte(nextB5, nextB6);
+                            int nextHi = CharUtil.makeByte(nextB3, nextB4);
+                            int nextLo = CharUtil.makeByte(nextB5, nextB6);
                             int cp2 = ((nextHi << 8) | nextLo);
                             if (!CharUtil.isLowUTF16Surrogate(cp2)){
                                 throw new JSONException("cannot resolve backslash with \\u LowUTF16Surrogate, offset: "
                                         + this.reader.offset());
                             }
+                            sb.append((char) cp1);
+                            sb.append((char) cp2);
 
-                            sb.appendCodePoint(CharUtil.toCodePoint(cp1, cp2));
-
+                            // sb.appendCodePoint(CharUtil.toCodePoint(cp1, cp2));
                         } else {
-                            sb.appendCodePoint(cp1);
+                            sb.append((char) cp1);
                         }
 
                     } else if (nextCh == '"' ||
@@ -453,11 +480,11 @@ public class JSONParser {
                             nextCh == 'n' ||
                             nextCh == 'r' ||
                             nextCh == 't') {
-                        sb.appendCodePoint(nextCh == '"' ? '"' : (nextCh == '\\' ? '\\' : (nextCh == '/' ? '/' : (
+                        sb.append(nextCh == '"' ? '"' : (nextCh == '\\' ? '\\' : (nextCh == '/' ? '/' : (
                                 nextCh == 'b' ? '\b' : (nextCh == 'f' ? '\f' : (nextCh == 'n' ? '\n' : (
-                                        nextCh == 'r' ? '\r' : (nextCh == 't' ? '\t' : nextCh)
+                                        nextCh == 'r' ? '\r' : '\t')
                                 )))
-                        ))));
+                        )));
                         // ignore
                     } else {
                         // System.out.println(new String(buffer, 0, pos));
@@ -468,7 +495,11 @@ public class JSONParser {
                     break;
                 }
                 default: {
-                    sb.appendCodePoint(ch);
+                    if (Character.isBmpCodePoint(ch)){
+                        sb.append((char) ch);
+                    }else {
+                        sb.appendCodePoint(ch);
+                    }
                     if (!Character.isWhitespace(ch)) {
                         ti.isBlank = false;
                     }
@@ -482,7 +513,7 @@ public class JSONParser {
         int start = this.reader.offset();
         int ch;
         TokenInfo ti = new TokenInfo();
-        StringBuilder sb = new StringBuilder();
+        sb.setLength(0);
         while (this.reader.remaining() > 0) {
             ch = this.reader.read();
             switch (ch) {
@@ -505,8 +536,8 @@ public class JSONParser {
                         int b1 = this.reader.read();
                         int b2 = this.reader.read();
                         if (CharUtil.isHex(b1) && CharUtil.isHex(b2)) {
-                            int codePoint = CharUtil.toByte(b1, b2);
-                            sb.appendCodePoint(codePoint);
+                            int codePoint = CharUtil.makeByte(b1, b2);
+                            sb.append((char) codePoint);
                         } else {
                             throw new JSONException("cannot resolve backslash with \\x with invalid hex, offset: "
                                     + this.reader.offset());
@@ -518,13 +549,16 @@ public class JSONParser {
                         int b2 = this.reader.read();
                         int b3 = this.reader.read();
                         int b4 = this.reader.read();
-                        if (!CharUtil.isHex(b1) || !CharUtil.isHex(b2) || !CharUtil.isHex(b3) || !CharUtil.isHex(b4)) {
+                        if (!CharUtil.isHex(b1) ||
+                            !CharUtil.isHex(b2) ||
+                            !CharUtil.isHex(b3) ||
+                            !CharUtil.isHex(b4)) {
                             throw new JSONException("cannot resolve backslash with \\u with invalid hex, offset: "
                                     + this.reader.offset());
                         }
 
-                        int hi = CharUtil.toByte(b1, b2);
-                        int lo = CharUtil.toByte(b3, b4);
+                        int hi = CharUtil.makeByte(b1, b2);
+                        int lo = CharUtil.makeByte(b3, b4);
                         int cp1 = ((hi << 8) | lo);
                         if (CharUtil.isHighUTF16Surrogate(cp1)) {
                             int nextB1 = this.reader.read();
@@ -539,26 +573,26 @@ public class JSONParser {
                             int nextB5 = this.reader.read();
                             int nextB6 = this.reader.read();
                             if (!CharUtil.isHex(nextB3) ||
-                                    !CharUtil.isHex(nextB4) ||
-                                    !CharUtil.isHex(nextB5) ||
-                                    !CharUtil.isHex(nextB6)) {
+                                !CharUtil.isHex(nextB4) ||
+                                !CharUtil.isHex(nextB5) ||
+                                !CharUtil.isHex(nextB6)) {
                                 throw new JSONException("cannot resolve backslash with \\u with invalid hex, offset: "
                                         + this.reader.offset());
 
                             }
 
-                            int nextHi = CharUtil.toByte(nextB3, nextB4);
-                            int nextLo = CharUtil.toByte(nextB5, nextB6);
+                            int nextHi = CharUtil.makeByte(nextB3, nextB4);
+                            int nextLo = CharUtil.makeByte(nextB5, nextB6);
                             int cp2 = ((nextHi << 8) | nextLo);
                             if (!CharUtil.isLowUTF16Surrogate(cp2)){
                                 throw new JSONException("cannot resolve backslash with \\u LowUTF16Surrogate, offset: "
                                         + this.reader.offset());
                             }
 
-                            sb.appendCodePoint(CharUtil.toCodePoint(cp1, cp2));
-
+                            sb.append((char) cp1);
+                            sb.append((char) cp2);
                         } else {
-                            sb.appendCodePoint(cp1);
+                            sb.append((char) cp1);
                         }
 
                     } else if (nextCh == '"' ||
@@ -569,11 +603,11 @@ public class JSONParser {
                             nextCh == 'n' ||
                             nextCh == 'r' ||
                             nextCh == 't') {
-                        sb.appendCodePoint(nextCh == '"' ? '"' : (nextCh == '\\' ? '\\' : (nextCh == '/' ? '/' : (
+                        sb.append(nextCh == '"' ? '"' : (nextCh == '\\' ? '\\' : (nextCh == '/' ? '/' : (
                                 nextCh == 'b' ? '\b' : (nextCh == 'f' ? '\f' : (nextCh == 'n' ? '\n' : (
-                                        nextCh == 'r' ? '\r' : (nextCh == 't' ? '\t' : nextCh)
+                                        nextCh == 'r' ? '\r' : 't')
                                 )))
-                        ))));
+                        )));
                         // ignore
                     } else {
                         // System.out.println(new String(buffer, 0, pos));
@@ -584,7 +618,11 @@ public class JSONParser {
                     break;
                 }
                 default: {
-                    sb.appendCodePoint(ch);
+                    if (Character.isBmpCodePoint(ch)){
+                        sb.append((char) ch);
+                    }else {
+                        sb.appendCodePoint(ch);
+                    }
                     if (!Character.isWhitespace(ch)) {
                         ti.isBlank = false;
                     }
@@ -595,7 +633,6 @@ public class JSONParser {
     }
 
     public TokenInfo nextToken() {
-
         int ch;
         TokenInfo ti = new TokenInfo();
         ti.start = this.reader.offset();
@@ -691,6 +728,7 @@ public class JSONParser {
 
         if (!ti.isBlank && ti.notBlankLeft > -1 && ti.notBlankRight > -1 && ti.notBlankRight > ti.notBlankLeft) {
             readValue(ti.notBlankLeft, ti.notBlankRight, ti);
+            // System.out.println("ti.val = " + ti.val);
         }
 
         return ti;
@@ -721,8 +759,7 @@ public class JSONParser {
             int b3 = this.reader.read();
             int b4 = this.reader.read();
             if (b1 == 't' || b1 == 'T') {
-                boolean succ = b1 == 't' || b1 == 'T';
-                succ = succ && (b2 == 'r' || b2 == 'R');
+                boolean succ = (b2 == 'r' || b2 == 'R');
                 succ = succ && (b3 == 'u' || b3 == 'U');
                 succ = succ && (b4 == 'e' || b4 == 'E');
                 if (!succ) {
@@ -733,8 +770,7 @@ public class JSONParser {
                 this.reader.offset(mark);
                 return;
             } else if (b1 == 'n' || b1 == 'N') {
-                boolean succ = b1== 'n' || b1 == 'N';
-                succ = succ && (b2 == 'u' || b2 == 'U');
+                boolean succ = (b2 == 'u' || b2 == 'U');
                 succ = succ && (b3 == 'l' || b3 == 'L');
                 succ = succ && (b4 == 'l' || b4 == 'L');
                 if (!succ) {

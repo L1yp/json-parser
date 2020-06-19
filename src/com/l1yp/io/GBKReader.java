@@ -4,7 +4,6 @@ package com.l1yp.io;
 import com.l1yp.exception.ByteSequenceException;
 import com.l1yp.util.RuntimeUtil;
 import com.l1yp.util.Target;
-import sun.nio.cs.CharsetMapping;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -20,7 +19,8 @@ public class GBKReader extends AbstractReader {
     private static char[] b2cSB;
     private static final int b2Min = 0x40;
     private static final int b2Max = 0xFE;
-
+    public static final char UNMAPPABLE_DECODING = '�';
+    public static final int UNMAPPABLE_ENCODING = 65533;
 
     public GBKReader(byte[] buffer) {
         super(buffer);
@@ -34,7 +34,7 @@ public class GBKReader extends AbstractReader {
     public int read() {
         int b1 = buffer[offset++] & 0x00FF;
         char c = b2cSB[b1];
-        if (c == CharsetMapping.UNMAPPABLE_DECODING){
+        if (c == UNMAPPABLE_DECODING){
             if (offset + 1 >= limit){
                 throw new IndexOutOfBoundsException(String.format(
                         "curPos: %d, limit: %d, remaining: %d", offset, limit, remaining()));
@@ -50,7 +50,7 @@ public class GBKReader extends AbstractReader {
                 throw new ByteSequenceException("GBK's second byte range must be between 0x40-0xFE, curPos: " + offset);
             }
             c = b2c[b1][b2 - b2Min];
-            if (c == CharsetMapping.UNMAPPABLE_DECODING){
+            if (c == UNMAPPABLE_DECODING){
                 throw new ByteSequenceException(String.format("cannot conver to char from gbk table, b1: %d, b2: %d", b1, b2));
             }
         }

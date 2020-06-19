@@ -16,7 +16,7 @@ public class CharUtil {
         return (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F') || (ch >= '0' && ch <= '9');
     }
 
-    public static int toByte(int hi, int lo) {
+    public static int makeByte(int hi, int lo) {
         int h, l;
         if (hi >= 'a' && hi <= 'f') {
             h = hi - 'a' + 10;
