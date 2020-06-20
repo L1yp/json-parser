@@ -22,7 +22,7 @@ import java.util.Map;
 public class JSONParser {
 
     private Reader reader;
-    private StringBuilder sb = new StringBuilder(1024);
+    private final StringBuilder sb = new StringBuilder(1024);
 
     public JSONParser(Reader reader) {
         this.reader = reader;
@@ -64,7 +64,7 @@ public class JSONParser {
                     break;
                 }
                 case Token.DELIM_START: {
-                    JSONObject curVal = new JSONObject();
+                    JSONObject curVal = new JSONObject(true);
                     if (!deque.isEmpty()) {
                         if (last.token == Token.COLON) {
                             if (top instanceof Map) {

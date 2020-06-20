@@ -23,6 +23,10 @@ public abstract class AbstractReader implements Reader {
         this.mark = -1;
     }
 
+    @Override
+    public byte[] buffer() {
+        return this.buffer;
+    }
 
     @Override
     public void mark() {

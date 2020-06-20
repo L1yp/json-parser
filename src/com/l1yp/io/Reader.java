@@ -7,6 +7,8 @@ package com.l1yp.io;
  */
 public interface Reader {
 
+    byte[] buffer();
+
     /**
      * 读取下一个unicode码点
      * @return codePoint
