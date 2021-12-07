@@ -804,6 +804,7 @@ public class JSONParser {
             if (!succ) {
                 ti.val = new BigDecimal(this.reader.toSubString(start, end));
                 ti.succ = true;
+                this.reader.offset(mark);
                 return;
             }
             ti.val = Boolean.FALSE;
